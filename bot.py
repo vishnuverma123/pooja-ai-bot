@@ -95,12 +95,11 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply)
 
     except Exception as e:
-        print("ERROR:", e)
+    print("ERROR:", e)
 
-        await update.message.reply_text(
-            "Oops 😅 abhi thoda problem aa gaya. "
-            "Thodi der baad try karo."
-        )
+    await update.message.reply_text(
+        f"Error aa raha hai:\n\n{str(e)[:3000]}"
+    )
 
 
 def main():
