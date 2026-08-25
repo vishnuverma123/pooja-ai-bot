@@ -75,10 +75,15 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         response = await asyncio.to_thread(
-            client.models.generate_content,
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
+    client.models.generate_content,
+    model="gemini-2.5-flash",
+    contents=prompt,
+    config={
+        "automatic_function_calling": {
+            "disable": True
+        }
+    }
+    )
 
         reply = response.text.strip()
 
