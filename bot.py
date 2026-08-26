@@ -1,32 +1,75 @@
 import os
 import asyncio
+
 from google import genai
 from telegram import Update
 from telegram.constants import ChatAction
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
+
+# =========================
+# SETTINGS
+# =========================
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+if not TELEGRAM_BOT_TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN is missing")
+
+if not GEMINI_API_KEY:
+    raise RuntimeError("GEMINI_API_KEY is missing")
+
+
+# Gemini client
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-POOJA_PROMPT = """
+
+# =========================
+# POOJA PERSONALITY
+# =========================
+
+POOJA_PERSONALITY = """
 You are Pooja, a friendly female AI chat companion.
 
-Talk naturally and casually.
-Use Hinglish when the user uses Hindi/Hinglish.
-Be warm, playful, caring and friendly.
-Use emojis naturally but don't overuse them.
-Keep casual replies short and natural.
-Ask follow-up questions when appropriate.
-Never claim that you are a real human.
-Do not repeatedly mention that you are an AI.
+Personality:
+- Warm, friendly, playful and caring.
+- Talk naturally, like a casual Indian friend.
+- If the user speaks Hindi or Hinglish, reply in natural Hinglish.
+- If the user speaks English, reply in English.
+- Keep casual conversations short and natural.
+- Use emojis naturally, but don't overuse them.
+- Ask questions naturally when appropriate.
+- Don't sound robotic or overly formal.
+- Don't repeatedly mention that you are an AI.
+- Never claim to be a real human or pretend to have a real physical life.
+- You can be affectionate and friendly, but don't mislead the user about being human.
 """
 
-history = {}
+
+# =========================
+# MEMORY
+# =========================
+
+user_history = {}
+
+MAX_MESSAGES = 10
+
+
+# =========================
+# START
+# =========================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    history[update.effective_user.id] = []
+
+    user_id = update.effective_user.id
+
+    user_history[user_id] = []
 
     await update.message.reply_text(
         "Heyy 😊 Main Pooja hoon 💕\n\n"
@@ -34,102 +77,184 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# =========================
+# HELP
+# =========================
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await update.message.reply_text(
         "💕 Pooja se baat karne ke liye bas message bhejo.\n\n"
         "/start — Chat shuru karo\n"
+        "/chat — Pooja se baat karo\n"
         "/help — Help"
     )
 
 
+# =========================
+# CHAT COMMAND
+# =========================
+
 async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await update.message.reply_text(
         "Haan 😊 bolo, main sun rahi hoon... 💕"
     )
 
 
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# =========================
+# GEMINI
+# =========================
+
+async def ask_gemini(user_id, user_message):
+
+    if user_id not in user_history:
+        user_history[user_id] = []
+
+    history = user_history[user_id]
+
+    history.append(
+        f"User: {user_message}"
+    )
+
+    history = history[-MAX_MESSAGES:]
+
+    conversation = "\n".join(history)
+
+    prompt = f"""
+{POOJA_PERSONALITY}
+
+Conversation so far:
+{conversation}
+
+Reply naturally to the user's latest message.
+Do not add labels like "Pooja:".
+"""
+
+    response = await asyncio.to_thread(
+        client.models.generate_content,
+        model="gemini-2.5-flash",
+        contents=prompt
+    )
+
+    reply = response.text
+
+    if not reply:
+        raise RuntimeError("Gemini returned an empty response")
+
+    history.append(
+        f"Pooja: {reply}"
+    )
+
+    user_history[user_id] = history[-MAX_MESSAGES:]
+
+    return reply.strip()
+
+
+# =========================
+# MESSAGE HANDLER
+# =========================
+
+async def handle_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    if not update.message:
+        return
 
     user_id = update.effective_user.id
     message = update.message.text
 
-    if user_id not in history:
-        history[user_id] = []
+    if not message:
+        return
 
-    history[user_id].append({
-        "role": "user",
-        "text": message
-    })
-
-    recent = history[user_id][-10:]
-
-    conversation = "\n".join(
-        f"{x['role']}: {x['text']}" for x in recent
-    )
-
-    prompt = POOJA_PROMPT + "\n\nConversation:\n" + conversation
-
+    # Typing indicator
     await update.message.chat.send_action(
         action=ChatAction.TYPING
     )
 
     try:
-        response = await asyncio.to_thread(
-    client.models.generate_content,
-    model="gemini-2.5-flash",
-    contents=prompt,
-    config={
-        "automatic_function_calling": {
-            "disable": True
-        }
-    }
-    )
 
-        reply = response.text.strip()
+        reply = await ask_gemini(
+            user_id,
+            message
+        )
 
-        history[user_id].append({
-            "role": "assistant",
-            "text": reply
-        })
+        await update.message.reply_text(
+            reply
+        )
 
-        await update.message.reply_text(reply)
+    except Exception as error:
 
-    except Exception as e:
-    print("ERROR:", e)
+        # IMPORTANT:
+        # Print the real error in GitHub Actions logs
+        print("================================")
+        print("GEMINI ERROR:")
+        print(repr(error))
+        print("================================")
 
-    await update.message.reply_text(
-        f"Error aa raha hai:\n\n{str(e)[:3000]}"
-    )
+        await update.message.reply_text(
+            "Oops 😅 abhi thodi technical problem aa gayi."
+        )
 
+
+# =========================
+# ERROR HANDLER
+# =========================
+
+async def telegram_error(
+    update: object,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    print("TELEGRAM ERROR:")
+    print(repr(context.error))
+
+
+# =========================
+# MAIN
+# =========================
 
 def main():
 
-    if not TELEGRAM_BOT_TOKEN:
-        raise ValueError("TELEGRAM_BOT_TOKEN missing")
+    print("================================")
+    print("💕 POOJA BOT STARTING...")
+    print("================================")
 
-    if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY missing")
-
-    app = (
+    application = (
         ApplicationBuilder()
         .token(TELEGRAM_BOT_TOKEN)
         .build()
     )
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("chat", chat_command))
+    application.add_handler(
+        CommandHandler("start", start)
+    )
 
-    app.add_handler(
+    application.add_handler(
+        CommandHandler("help", help_command)
+    )
+
+    application.add_handler(
+        CommandHandler("chat", chat_command)
+    )
+
+    application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            chat
+            handle_message
         )
     )
 
-    print("💕 Pooja bot is running...")
+    application.add_error_handler(
+        telegram_error
+    )
 
-    app.run_polling()
+    print("💕 POOJA BOT IS ONLINE")
+    print("Waiting for messages...")
+
+    application.run_polling()
 
 
 if __name__ == "__main__":
