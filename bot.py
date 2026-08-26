@@ -14,6 +14,7 @@ from telegram.ext import (
     filters,
 )
 
+
 # ==========================================
 # API KEYS
 # ==========================================
@@ -29,7 +30,7 @@ if not GEMINI_API_KEY:
 
 
 # ==========================================
-# GEMINI
+# GEMINI CLIENT
 # ==========================================
 
 client = genai.Client(
@@ -73,7 +74,10 @@ MAX_MESSAGES = 10
 # START
 # ==========================================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     user_id = update.effective_user.id
 
@@ -89,7 +93,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # HELP
 # ==========================================
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     await update.message.reply_text(
         "💕 Pooja se baat karne ke liye bas message bhejo.\n\n"
@@ -103,7 +110,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # CHAT
 # ==========================================
 
-async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def chat_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     await update.message.reply_text(
         "Haan 😊 bolo, main sun rahi hoon... 💕"
@@ -114,7 +124,10 @@ async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # GEMINI RESPONSE
 # ==========================================
 
-async def get_reply(user_id, message):
+async def get_reply(
+    user_id: int,
+    message: str
+):
 
     if user_id not in user_history:
         user_history[user_id] = []
@@ -149,22 +162,11 @@ Only give the natural chat reply.
 
         response = await asyncio.to_thread(
             client.models.generate_content,
-
             model="gemini-2.5-flash",
-
             contents=prompt,
-
             config=types.GenerateContentConfig(
-
                 temperature=0.9,
-
                 max_output_tokens=300,
-
-                automatic_function_calling=(
-                    types.AutomaticFunctionCallingConfig(
-                        disable=True
-                    )
-                ),
             ),
         )
 
@@ -173,12 +175,14 @@ Only give the natural chat reply.
                 "Gemini returned no response"
             )
 
-        reply = response.text
+        reply = response.text or ""
 
-        if not reply:
+        if not reply.strip():
             raise RuntimeError(
                 "Gemini returned empty text"
             )
+
+        reply = reply.strip()
 
         history.append(
             f"Pooja: {reply}"
@@ -188,7 +192,7 @@ Only give the natural chat reply.
             history[-MAX_MESSAGES:]
         )
 
-        return reply.strip()
+        return reply
 
     except Exception as error:
 
@@ -196,8 +200,12 @@ Only give the natural chat reply.
         print("========================================")
         print("GEMINI API ERROR")
         print("========================================")
-        print(type(error).__name__)
-        print(str(error))
+        print(
+            f"Error type: {type(error).__name__}"
+        )
+        print(
+            f"Error message: {error}"
+        )
         print("========================================")
         print("")
 
@@ -238,7 +246,11 @@ async def message_handler(
             reply
         )
 
-    except Exception:
+    except Exception as error:
+
+        print(
+            f"Message handling error: {error}"
+        )
 
         await update.message.reply_text(
             "Oops 😅 abhi thodi technical problem aa gayi."
@@ -309,6 +321,10 @@ def main():
 
     application.run_polling()
 
+
+# ==========================================
+# RUN
+# ==========================================
 
 if __name__ == "__main__":
     main()
